@@ -169,6 +169,59 @@ class DependencyVisualizer:
                 print(f"{package} -> No dependencies")
         print("========================")
 
+    def analyze_dependencies(self):
+        if self.params['test_mode']:
+            return
+            
+        load_order = self._calculate_load_order()
+        self._print_load_order(load_order)
+        self._compare_with_cargo(load_order)
+
+    def _calculate_load_order(self):
+        visited = set()
+        load_order = []
+        
+        def dfs(package, version):
+            node = f"{package}@{version}"
+            if node in visited:
+                return
+                
+            visited.add(node)
+            
+            dependencies = self.fetch_dependencies(package, version)
+            
+            for dep in dependencies:
+                dep_name = dep['name']
+                dep_version = self._extract_version(dep['version'])
+                dfs(dep_name, dep_version)
+                
+            load_order.append(node)
+            
+        package = self.params['package_name']
+        version = self.params['version']
+        dfs(package, version)
+        
+        return load_order[::-1]
+
+    def _print_load_order(self, load_order):
+        print("\n=== Dependency Load Order ===")
+        for i, package in enumerate(load_order, 1):
+            print(f"{i}. {package}")
+
+    def _compare_with_cargo(self, load_order):
+        print("\n=== Comparison with Cargo ===")
+        print("Generated load order:")
+        for i, package in enumerate(load_order, 1):
+            print(f"  {i}. {package}")
+            
+        print("\nCompare with real package manager:")
+        print(f"  cargo tree --package {self.params['package_name']}")
+        print("\nPossible differences:")
+        print("  1. Version resolution algorithms")
+        print("  2. Feature flags handling") 
+        print("  3. Platform-specific dependencies")
+        print("  4. Build vs normal dependencies")
+
 def main():
     visualizer = DependencyVisualizer()
     
@@ -176,6 +229,7 @@ def main():
         visualizer.load_config()
         visualizer.print_direct_dependencies()
         visualizer.build_dependency_graph()
+        visualizer.analyze_dependencies()
         
     except Exception as e:
         print(f"Error: {e}")
