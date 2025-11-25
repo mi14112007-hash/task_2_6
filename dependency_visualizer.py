@@ -4,11 +4,15 @@ import os
 import sys
 import requests
 import json
+from collections import defaultdict
 
 class DependencyVisualizer:
     def __init__(self, config_file="config.ini"):
         self.config_file = config_file
         self.params = {}
+        self.graph = defaultdict(list)
+        self.visited = set()
+        self.cycles = []
         
     def load_config(self):
         if not os.path.exists(self.config_file):
@@ -98,12 +102,80 @@ class DependencyVisualizer:
             print(f"{i}. {dep['name']} {dep['version']}{kind}")
         print("=============================================")
 
+    def build_dependency_graph(self):
+        if self.params['test_mode']:
+            self._test_mode_analysis()
+            return
+            
+        package = self.params['package_name']
+        version = self.params['version']
+        self._bfs_with_recursion(package, version, 0)
+        
+        self._print_graph()
+        
+        if self.cycles:
+            print(f"\nCyclic dependencies detected: {self.cycles}")
+
+    def _bfs_with_recursion(self, package, version, current_depth):
+        if current_depth > self.params['max_depth']:
+            return
+            
+        if (package, version) in self.visited:
+            self.cycles.append((package, version))
+            return
+            
+        self.visited.add((package, version))
+        
+        filter_sub = self.params['filter_substring'].lower()
+        if filter_sub and filter_sub in package.lower():
+            return
+            
+        dependencies = self.fetch_dependencies(package, version)
+        
+        for dep in dependencies:
+            dep_name = dep['name']
+            dep_version = self._extract_version(dep['version'])
+            
+            self.graph[f"{package}@{version}"].append(f"{dep_name}@{dep_version}")
+            
+            self._bfs_with_recursion(dep_name, dep_version, current_depth + 1)
+
+    def _extract_version(self, version_req):
+        clean_version = version_req.replace('^', '').replace('~', '').replace('=', '')
+        return clean_version.split(',')[0] if ',' in clean_version else clean_version
+
+    def _test_mode_analysis(self):
+        test_file = self.params['test_repo_path']
+        try:
+            with open(test_file, 'r') as f:
+                test_data = json.load(f)
+                
+            print(f"\n=== Test Mode Analysis from {test_file} ===")
+            for package, deps in test_data.items():
+                print(f"{package} -> {deps}")
+            print("===========================================")
+            
+        except FileNotFoundError:
+            print(f"Test file {test_file} not found")
+        except json.JSONDecodeError:
+            print(f"Invalid JSON in test file {test_file}")
+
+    def _print_graph(self):
+        print("\n=== Dependency Graph ===")
+        for package, dependencies in self.graph.items():
+            if dependencies:
+                print(f"{package} -> {', '.join(dependencies)}")
+            else:
+                print(f"{package} -> No dependencies")
+        print("========================")
+
 def main():
     visualizer = DependencyVisualizer()
     
     try:
         visualizer.load_config()
         visualizer.print_direct_dependencies()
+        visualizer.build_dependency_graph()
         
     except Exception as e:
         print(f"Error: {e}")
